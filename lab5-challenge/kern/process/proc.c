@@ -957,7 +957,7 @@ user_main(void *arg)
 #ifdef TEST
     KERNEL_EXECVE2(TEST, TESTSTART, TESTSIZE);
 #else
-    KERNEL_EXECVE(cowtest);  // 运行 COW 测试程序
+    KERNEL_EXECVE(cowtest);
 #endif
     panic("user_main execve failed.\n");
 }
