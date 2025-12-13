@@ -454,20 +454,26 @@ get_page_addr_code() 直接返回物理地址，不经过页表查找
 (gdb) x/10i $pc
 ```
 关键代码位置（QEMU-4.1.1）
+
 在 QEMU 源码中查找以下函数：
-accel/tcg/cputlb.c
+1. accel/tcg/cputlb.c
 get_page_addr_code() - 代码页地址获取
 tlb_vaddr_to_host() - 虚拟地址到主机地址转换
 tlb_fill() - TLB 填充
-target/riscv/cpu_helper.c
+
+2. target/riscv/cpu_helper.c
 riscv_cpu_get_phys_page_debug() - 获取物理页
 riscv_cpu_tlb_fill() - RISC-V TLB miss 处理
-target/riscv/translate.c 或相关文件
-helper_sret() 或 CSR 写入处理
+
+3. target/riscv/translate.c 
+helper_sret()
+CSR 写入处理
 
 **观察到的区别**
+
 Bare 模式（未开启虚拟地址）
-调用路径：get_page_addr_code()   -> 直接检查地址范围  -> 可能直接返回物理地址  -> 不涉及TLB查找
+- 调用路径：get_page_addr_code()   -> 直接检查地址范围  -> 可能直接返回物理地址  -> 不涉及TLB查找
+
 Sv39 模式（开启虚拟地址）
-调用路径：get_page_addr_code()  -> 检查QEMU软件TLB  -> TLB miss时调用 riscv_cpu_tlb_fill()  -> 遍历页表（walk_page_table）  -> 填充TLB条目  -> 返回转换后的地址
+- 调用路径：get_page_addr_code()  -> 检查QEMU软件TLB  -> TLB miss时调用 riscv_cpu_tlb_fill()  -> 遍历页表（walk_page_table）  -> 填充TLB条目  -> 返回转换后的地址
 
