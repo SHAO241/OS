@@ -497,7 +497,6 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
     local_intr_restore(intr_flag); // 开中断
     
     // 6. 调用wakeup_proc使新进程变为RUNNABLE
-    // 6. 调用wakeup_proc使新进程变为RUNNABLE
     wakeup_proc(proc);
     
     // 7. 使用子进程的pid设置返回值
