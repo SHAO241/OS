@@ -1107,7 +1107,10 @@ found:
     }
     if (code_store != NULL)
     {
-        *code_store = proc->exit_code;
+        if (!copy_to_user(mm, code_store, &(proc->exit_code), sizeof(int)))
+        {
+            return -E_INVAL;
+        }
     }
     local_intr_save(intr_flag);
     {

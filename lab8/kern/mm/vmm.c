@@ -8,6 +8,9 @@
 #include <riscv.h>
 #include <kmalloc.h>
 
+// check_mm_struct is used for testing
+struct mm_struct *check_mm_struct = NULL;
+
 /*
   vmm design include two parts: mm_struct (mm) & vma_struct (vma)
   mm is the memory manager for the set of continuous virtual memory
@@ -258,10 +261,73 @@ bool copy_to_user(struct mm_struct *mm, void *dst, const void *src, size_t len)
 {
     if (!user_mem_check(mm, (uintptr_t)dst, len, 1))
     {
+        cprintf("copy_to_user: user_mem_check failed for addr %x\n", (uintptr_t)dst);
         return 0;
     }
     memcpy(dst, src, len);
     return 1;
+}
+
+int
+do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
+    int ret = -E_INVAL;
+    //尝试找到包含addr的vma
+    struct vma_struct *vma = find_vma(mm, addr);
+
+    //如果vma为空或者addr小于vma的起始地址
+    if (vma == NULL || vma->vm_start > addr) {
+        cprintf("not valid addr %x, and  can not find it in vma\n", addr);
+        goto failed;
+    }
+
+    /* IF (write an existed addr ) OR
+     *    (write an non_existed addr && addr is writable) OR
+     *    (read  an non_existed addr && addr is readable)
+     * THEN
+     *    continue process
+     */
+    uint32_t perm = PTE_U;
+    if (vma->vm_flags & VM_WRITE) {
+        perm |= (PTE_R | PTE_W);
+    }
+    if (vma->vm_flags & VM_READ) {
+        perm |= PTE_R;
+    }
+    
+    addr = ROUNDDOWN(addr, PGSIZE);
+
+    ret = -E_NO_MEM;
+
+    pte_t *ptep=NULL;
+    
+    // 尝试找到一个pte，如果pte的权限位（Present，但是Write位没有被设置）不满足需求
+    // 那么尝试设置一个具有该权限的页
+    ptep = get_pte(mm->pgdir, addr, 1);  //(1) 尝试找到一个pte，如果pte的
+                                         //权限位（Present，但是Write位没有被设置）
+                                         //不满足需求，那么尝试设置一个具有该权限的页
+    if (*ptep == 0) { // 如果这个pte不存在，那么分配一个页并映射这个pte的地址到该页的物理地址
+        if (pgdir_alloc_page(mm->pgdir, addr, perm) == NULL) {
+            cprintf("pgdir_alloc_page in do_pgfault failed\n");
+            goto failed;
+        }
+    }
+    else {
+        // 如果PTE存在，说明之前已经建立了映射
+        // 这种情况下可能是写时复制或者其他高级特性
+        // 目前简单处理：如果页面已存在但权限不足，更新权限
+        struct Page *page = pte2page(*ptep);
+        if (page != NULL) {
+            // 页面已存在，可能需要更新权限
+            ret = 0;
+        } else {
+            cprintf("pte is not zero but page is NULL\n");
+            goto failed;
+        }
+   }
+
+   ret = 0;
+failed:
+    return ret;
 }
 
 // vmm_init - initialize virtual memory management
@@ -355,6 +421,7 @@ bool user_mem_check(struct mm_struct *mm, uintptr_t addr, size_t len, bool write
     {
         if (!USER_ACCESS(addr, addr + len))
         {
+            cprintf("user_mem_check: USER_ACCESS failed for addr %x-%x\n", addr, addr + len);
             return 0;
         }
         struct vma_struct *vma;
@@ -363,16 +430,19 @@ bool user_mem_check(struct mm_struct *mm, uintptr_t addr, size_t len, bool write
         {
             if ((vma = find_vma(mm, start)) == NULL || start < vma->vm_start)
             {
+                cprintf("user_mem_check: find_vma failed for addr %x\n", start);
                 return 0;
             }
             if (!(vma->vm_flags & ((write) ? VM_WRITE : VM_READ)))
             {
+                cprintf("user_mem_check: permission check failed for addr %x\n", start);
                 return 0;
             }
             if (write && (vma->vm_flags & VM_STACK))
             {
                 if (start < vma->vm_start + PGSIZE)
                 { // check stack start & size
+                    cprintf("user_mem_check: stack guard page check failed\n");
                     return 0;
                 }
             }

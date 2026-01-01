@@ -100,6 +100,36 @@ void print_regs(struct pushregs *gpr)
 
 extern struct mm_struct *check_mm_struct;
 
+static void
+print_pgfault(struct trapframe *tf) {
+    cprintf("page fault at 0x%08x: %c/%c\n", tf->tval,
+            trap_in_kernel(tf) ? 'K' : 'U',
+            tf->cause == CAUSE_STORE_PAGE_FAULT ? 'W' : 'R');
+}
+
+static int
+pgfault_handler(struct trapframe *tf) {
+    extern struct mm_struct *check_mm_struct;
+    if(check_mm_struct !=NULL) { //used for test check_swap
+            print_pgfault(tf);
+        }
+    //对于页错误异常，我们需要从stval寄存器中取出错误的虚拟地址
+    struct mm_struct *mm;
+    if (check_mm_struct != NULL) {
+        assert(current == idleproc);
+        mm = check_mm_struct;
+    }
+    else {
+        if (current == NULL) {
+            print_trapframe(tf);
+            print_pgfault(tf);
+            panic("unhandled page fault.\n");
+        }
+        mm = current->mm;
+    }
+    return do_pgfault(mm, tf->cause, tf->tval);
+}
+
 void interrupt_handler(struct trapframe *tf)
 {
     intptr_t cause = (tf->cause << 1) >> 1;
@@ -211,16 +241,52 @@ void exception_handler(struct trapframe *tf)
         tf->epc += 4;
         break;
     case CAUSE_FETCH_PAGE_FAULT:
-        cprintf("Instruction page fault\n");
-        tf->epc += 4;
+        if ((ret = pgfault_handler(tf)) != 0) {
+            cprintf("Instruction page fault\n");
+            print_trapframe(tf);
+            if (current == NULL) {
+                panic("handle pgfault failed. ret=%d\n", ret);
+            }
+            else {
+                if (trap_in_kernel(tf)) {
+                    panic("handle pgfault failed in kernel mode. ret=%d\n", ret);
+                }
+                cprintf("killed by kernel.\n");
+                do_exit(-E_KILLED);
+            }
+        }
         break;
     case CAUSE_LOAD_PAGE_FAULT:
-        cprintf("Load page fault\n");
-        tf->epc += 4;
+        if ((ret = pgfault_handler(tf)) != 0) {
+            cprintf("Load page fault\n");
+            print_trapframe(tf);
+            if (current == NULL) {
+                panic("handle pgfault failed. ret=%d\n", ret);
+            }
+            else {
+                if (trap_in_kernel(tf)) {
+                    panic("handle pgfault failed in kernel mode. ret=%d\n", ret);
+                }
+                cprintf("killed by kernel.\n");
+                do_exit(-E_KILLED);
+            }
+        }
         break;
     case CAUSE_STORE_PAGE_FAULT:
-        cprintf("Store/AMO page fault\n");
-        tf->epc += 4;
+        if ((ret = pgfault_handler(tf)) != 0) {
+            cprintf("Store/AMO page fault\n");
+            print_trapframe(tf);
+            if (current == NULL) {
+                panic("handle pgfault failed. ret=%d\n", ret);
+            }
+            else {
+                if (trap_in_kernel(tf)) {
+                    panic("handle pgfault failed in kernel mode. ret=%d\n", ret);
+                }
+                cprintf("killed by kernel.\n");
+                do_exit(-E_KILLED);
+            }
+        }
         break;
     default:
         print_trapframe(tf);
